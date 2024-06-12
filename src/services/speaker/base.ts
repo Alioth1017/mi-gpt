@@ -78,6 +78,10 @@ export type BaseSpeakerConfig = MiServiceConfig & {
    * TTS 开始/结束提示音
    */
   audioBeep?: string;
+  /**
+   * 流式回复时，每个词之间的间隔时间（单位秒，默认 0 秒，不启动）
+   */
+  ttsWordDelayInSeconds?: number;
 };
 
 export class BaseSpeaker {
@@ -93,6 +97,7 @@ export class BaseSpeaker {
   ttsCommand: ActionCommand;
   wakeUpCommand: ActionCommand;
   playingCommand?: PropertyCommand;
+  ttsWordDelayInSeconds: number;
 
   constructor(config: BaseSpeakerConfig) {
     this.config = config;
@@ -106,6 +111,7 @@ export class BaseSpeaker {
       ttsCommand = [5, 1],
       wakeUpCommand = [5, 3],
       audioBeep = process.env.AUDIO_BEEP,
+      ttsWordDelayInSeconds = 0,
     } = config;
     this.debug = debug;
     this.streamResponse = streamResponse;
@@ -117,6 +123,7 @@ export class BaseSpeaker {
     this.ttsCommand = ttsCommand;
     this.wakeUpCommand = wakeUpCommand;
     this.playingCommand = playingCommand;
+    this.ttsWordDelayInSeconds = ttsWordDelayInSeconds;
   }
 
   async initMiServices() {
@@ -184,6 +191,7 @@ export class BaseSpeaker {
     speaker?: string;
     keepAlive?: boolean;
     playSFX?: boolean;
+    ttsWordDelayInSeconds?: number;
     hasNewMsg?: () => boolean;
   }) {
     let {
@@ -192,6 +200,7 @@ export class BaseSpeaker {
       stream,
       playSFX = true,
       keepAlive = false,
+      ttsWordDelayInSeconds = 0,
       tts = this.tts,
     } = options ?? {};
     options.hasNewMsg ??= this.checkIfHasNewMsg().hasNewMsg;
@@ -336,6 +345,18 @@ export class BaseSpeaker {
       }
       // 等待一段时间，确保本地设备状态已更新
       await sleep(this.checkTTSStatusAfter * 1000);
+
+      let isStaticPlaying =
+        this.ttsWordDelayInSeconds > 0 && !playSFX && !keepAlive;
+      if (isStaticPlaying && args?.tts) {
+        const playTime = this.ttsWordDelayInSeconds * args.tts.length;
+        this.logger.debug(`wait ${playTime}s ...`);
+        setTimeout(() => {
+          isStaticPlaying = false;
+          this.logger.debug("wait end.");
+        }, playTime * 1000);
+      }
+
       // 等待回答播放完毕
       while (true) {
         let playing: any = { status: "idle" };
@@ -347,11 +368,20 @@ export class BaseSpeaker {
           if (this.debug) {
             this.logger.debug(jsonEncode({ playState: res ?? "undefined" }));
           }
-          if (res === this.playingCommand[2]) {
+          if (isStaticPlaying || res === this.playingCommand[2]) {
             playing = { status: "playing" };
           }
         } else {
           const res = await this.MiNA!.getStatus();
+          this.logger.debug(
+            "waiting res.status:",
+            res?.status,
+            res?.media_type
+          );
+          if (res && isStaticPlaying) {
+            res.status = "playing";
+            res.media_type = 0;
+          }
           if (this.debug) {
             this.logger.debug(jsonEncode({ playState: res ?? "undefined" }));
           }
@@ -370,6 +400,7 @@ export class BaseSpeaker {
         }
         await sleep(this.checkInterval);
       }
+
       // 播放结束提示音
       if (playSFX && this.audioBeep) {
         if (this.debug) {

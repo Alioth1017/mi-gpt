@@ -54,5 +54,7 @@ export default {
     streamResponse: true,
     // 查询是否在播放中指令，请到 https://home.miot-spec.com 查询具体指令
     // playingCommand: [3, 1, 1], // 默认无需配置此参数，播放出现问题时再尝试开启
+    // 当设备不支持通过开放接口查询播放状态（比如：小米音箱 Play 增强版），针对每个字等待的秒数
+    // ttsWordDelayInSeconds: 0.175,
   },
 };
